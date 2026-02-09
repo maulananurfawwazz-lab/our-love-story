@@ -2,12 +2,28 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { User } from '@supabase/supabase-js';
 
+interface Profile {
+  id: string;
+  name: string;
+  couple_id: string;
+  avatar_url: string | null;
+  bio: string | null;
+}
+
+interface CoupleInfo {
+  start_date: string | null;
+}
+
 interface AuthContextType {
   user: User | null;
-  profile: { id: string; name: string; couple_id: string; avatar_url: string | null; bio: string | null } | null;
+  profile: Profile | null;
+  partner: Profile | null;
+  coupleInfo: CoupleInfo | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
+  refreshCoupleInfo: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -20,7 +36,9 @@ export const useAuth = () => {
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<AuthContextType['profile']>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [partner, setPartner] = useState<Profile | null>(null);
+  const [coupleInfo, setCoupleInfo] = useState<CoupleInfo | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = async (userId: string) => {
@@ -30,6 +48,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .eq('user_id', userId)
       .maybeSingle();
     setProfile(data);
+
+    if (data?.couple_id) {
+      // Fetch partner
+      const { data: partnerData } = await supabase
+        .from('profiles')
+        .select('id, name, couple_id, avatar_url, bio')
+        .eq('couple_id', data.couple_id)
+        .neq('user_id', userId)
+        .maybeSingle();
+      setPartner(partnerData);
+
+      // Fetch couple info
+      await fetchCoupleInfo(data.couple_id);
+    }
+  };
+
+  const fetchCoupleInfo = async (coupleId: string) => {
+    const { data } = await supabase
+      .from('couples')
+      .select('start_date')
+      .eq('id', coupleId)
+      .maybeSingle();
+    setCoupleInfo(data);
+  };
+
+  const refreshCoupleInfo = async () => {
+    if (profile?.couple_id) await fetchCoupleInfo(profile.couple_id);
+  };
+
+  const refreshProfile = async () => {
+    if (user) await fetchProfile(user.id);
   };
 
   useEffect(() => {
@@ -40,6 +89,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await fetchProfile(u.id);
       } else {
         setProfile(null);
+        setPartner(null);
+        setCoupleInfo(null);
       }
       setLoading(false);
     });
@@ -63,10 +114,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
+    setPartner(null);
+    setCoupleInfo(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, profile, partner, coupleInfo, loading, signIn, signOut, refreshCoupleInfo, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );
