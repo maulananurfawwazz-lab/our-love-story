@@ -1,0 +1,66 @@
+name: Deploy Supabase backend (migrations + functions)
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip jq postgresql-client
+
+      - name: Download Supabase CLI
+        run: |
+          RELEASE_JSON=$(curl -s https://api.github.com/repos/supabase/cli/releases/latest)
+          ASSET_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name|test("linux.*amd64.*zip")) | .browser_download_url' | head -n1)
+          echo "Found asset: $ASSET_URL"
+          curl -L "$ASSET_URL" -o supabase.zip
+          unzip -q supabase.zip -d supabase-cli
+          chmod +x supabase-cli/supabase
+          sudo mv supabase-cli/supabase /usr/local/bin/supabase
+
+      - name: Show supabase version
+        run: supabase --version
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Apply DB migrations
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          # run all SQL migration files in the supabase/migrations folder in alphabetical order
+          for f in supabase/migrations/*.sql; do
+            echo "Applying $f"
+            psql "$SUPABASE_DB_URL" -f "$f"
+          done
+
+      - name: Deploy Supabase Functions
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          # deploy all functions in supabase/functions
+          for d in supabase/functions/*/ ; do
+            FN=$(basename "$d")
+            echo "Deploying function: $FN"
+            supabase functions deploy "$FN" --project-ref "$SUPABASE_PROJECT_REF"
+          done
+
+      - name: (Optional) Trigger Vercel redeploy
+        if: secrets.VERCEL_TOKEN != ''
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          echo "Triggering Vercel redeploy (if configured)"
+          curl -s -X POST "https://api.vercel.com/v13/deployments" \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"name":"'$VERCEL_PROJECT_ID'"}' || true

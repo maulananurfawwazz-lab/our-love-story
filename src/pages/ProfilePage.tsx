@@ -5,7 +5,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Edit2, Save } from 'lucide-react';
 
 const ProfilePage = () => {
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, signOut, refreshProfile, updateLocalProfile } = useAuth();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(profile?.name ?? '');
   const [bio, setBio] = useState(profile?.bio ?? '');
@@ -33,11 +33,52 @@ const ProfilePage = () => {
 
   const handleAvatarUpload = async (file: File) => {
     const ext = file.name.split('.').pop();
-    const path = `avatars/${user?.id}.${ext}`;
-    const { error } = await supabase.storage.from('couple-uploads').upload(path, file, { upsert: true });
+    // use a unique filename to avoid CDN/browser caching of previous avatar
+    const path = `avatars/${user?.id}-${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from('couple-uploads').upload(path, file, { upsert: false });
     if (!error) {
-      const { data } = supabase.storage.from('couple-uploads').getPublicUrl(path);
-      setAvatarUrl(data.publicUrl);
+    const { data } = supabase.storage.from('couple-uploads').getPublicUrl(path);
+    // add a cache-busting query param and persist avatar to profile so it's synced across accounts
+    const publicUrl = data.publicUrl + `?v=${Date.now()}`;
+    setAvatarUrl(publicUrl);
+    // update context immediately so avatar remains visible across pages/navigation
+    try { updateLocalProfile({ avatar_url: publicUrl }); } catch (e) { /* ignore */ }
+
+      // try to remove previous avatar file to keep storage tidy (best-effort)
+      try {
+        const prevUrl = profile?.avatar_url;
+        if (prevUrl && prevUrl.includes('/couple-uploads/')) {
+          // extract path after bucket name
+          const idx = prevUrl.indexOf('/couple-uploads/');
+          const prevPath = prevUrl.substring(idx + '/couple-uploads/'.length).split('?')[0];
+          if (prevPath) {
+            await supabase.storage.from('couple-uploads').remove([prevPath]);
+          }
+        }
+      } catch (e) {
+        // ignore removal errors
+        console.debug('Failed to remove previous avatar', e);
+      }
+
+      if (user) {
+        const { data: updated, error: updErr } = await supabase
+          .from('profiles')
+          .update({ avatar_url: publicUrl })
+          .eq('user_id', user.id)
+          .select('id, avatar_url')
+          .maybeSingle();
+
+        if (updErr) {
+          console.error('Failed to update profile avatar_url', updErr);
+          // keep local preview so the user doesn't lose the uploaded image visually
+          alert('Gagal menyimpan avatar ke profil. Coba lagi.');
+        } else if (updated) {
+          // ensure context is in sync only when DB update succeeded
+          await refreshProfile();
+        }
+      }
+    } else {
+      console.error('Avatar upload error', error);
     }
   };
 

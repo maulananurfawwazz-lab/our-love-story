@@ -29,6 +29,7 @@ const GalleryPage = () => {
   const [preview, setPreview] = useState<string | null>(null);
   const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [favorites, setFavorites] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!profile?.couple_id) return;
@@ -55,20 +56,47 @@ const GalleryPage = () => {
     if (!profile?.couple_id || !user) return;
     setUploading(true);
     let imageUrl: string | null = null;
-    if (file) {
-      const ext = file.name.split('.').pop();
-      const path = `memories/${Date.now()}.${ext}`;
-      const { error } = await supabase.storage.from('couple-uploads').upload(path, file);
-      if (!error) {
-        const { data: urlData } = supabase.storage.from('couple-uploads').getPublicUrl(path);
-        imageUrl = urlData.publicUrl;
+    // optimistic UI: add a temporary memory using preview while upload+insert happen
+    const tempId = `temp-${Date.now()}`;
+    const tempMemory: Memory = {
+      id: tempId,
+      image_url: preview,
+      description: desc || null,
+      date,
+      created_at: new Date().toISOString(),
+      created_by: user.id,
+    };
+    setMemories(prev => [tempMemory, ...prev]);
+
+    try {
+      if (file) {
+        const ext = file.name.split('.').pop();
+        const path = `memories/${Date.now()}.${ext}`;
+        const { error } = await supabase.storage.from('couple-uploads').upload(path, file);
+        if (!error) {
+          const { data: urlData } = supabase.storage.from('couple-uploads').getPublicUrl(path);
+          imageUrl = urlData.publicUrl;
+        }
       }
+
+      // insert and return the inserted row
+      const insertRes = await supabase.from('memories').insert({ couple_id: profile.couple_id, created_by: user.id, image_url: imageUrl, description: desc || null, date }).select('*').maybeSingle();
+      // refresh list (replace temp entry with actual data)
+      const { data } = await supabase.from('memories').select('*').eq('couple_id', profile.couple_id).order('date', { ascending: false });
+      if (data) setMemories(data);
+
+      // clear form after success
+      setShowAdd(false);
+      setDesc('');
+      setFile(null);
+      setPreview(null);
+    } catch (err) {
+      // on error, remove temp memory and keep form state so user can retry
+      setMemories(prev => prev.filter(m => m.id !== tempId));
+      console.error('Upload memory failed', err);
+    } finally {
+      setUploading(false);
     }
-    await supabase.from('memories').insert({ couple_id: profile.couple_id, created_by: user.id, image_url: imageUrl, description: desc || null, date });
-    setShowAdd(false); setDesc(''); setFile(null); setPreview(null);
-    const { data } = await supabase.from('memories').select('*').eq('couple_id', profile.couple_id).order('date', { ascending: false });
-    if (data) setMemories(data);
-    setUploading(false);
   };
 
   const handleDelete = async (id: string) => {
@@ -81,6 +109,16 @@ const GalleryPage = () => {
   const selectedIdx = memories.findIndex(m => m.id === selectedMemory?.id);
   const goNext = () => { if (selectedIdx < memories.length - 1) setSelectedMemory(memories[selectedIdx + 1]); };
   const goPrev = () => { if (selectedIdx > 0) setSelectedMemory(memories[selectedIdx - 1]); };
+
+  // long-press helper for favoriting
+  const useLongPress = (onLong: () => void, ms = 700) => {
+    let t: number | null = null;
+    return {
+      onPointerDown: () => { t = window.setTimeout(() => { onLong(); t = null; }, ms); },
+      onPointerUp: () => { if (t) { clearTimeout(t); t = null; } },
+      onPointerLeave: () => { if (t) { clearTimeout(t); t = null; } },
+    } as any;
+  };
 
   return (
     <div className="px-5 py-6 max-w-lg mx-auto pb-24">
@@ -118,33 +156,53 @@ const GalleryPage = () => {
         )}
       </AnimatePresence>
 
-      {/* Gallery Grid */}
+      {/* Gallery Mixed Layout: first item full-width highlight, rest 2-column grid */}
       <div className="grid grid-cols-2 gap-3">
-        {memories.map((m, i) => (
-          <motion.div
-            key={m.id}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.04 }}
-            className="glass-card overflow-hidden group cursor-pointer"
-            onClick={() => setSelectedMemory(m)}
-          >
-            {m.image_url ? (
-              <div className="relative overflow-hidden">
-                <img src={m.image_url} alt="" className="w-full h-36 object-cover transition-transform duration-500 group-hover:scale-110" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+        {memories.map((m, i) => {
+          const isHighlight = i === 0;
+          const lp = useLongPress(() => setFavorites(prev => ({ ...prev, [m.id]: !prev[m.id] })), 700);
+          return (
+            <motion.div
+              key={m.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.04 }}
+              className={`${isHighlight ? 'col-span-2' : ''} glass-card overflow-hidden group cursor-pointer`}
+              onClick={() => setSelectedMemory(m)}
+              {...lp}
+            >
+              {m.image_url ? (
+                <div className={`relative overflow-hidden ${isHighlight ? 'h-72' : 'h-36'}`}>
+                  <img src={m.image_url} alt="" className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 ${isHighlight ? '' : ''}`} />
+
+                  {/* dark gradient to anchor text */}
+                  <div className="absolute left-0 right-0 bottom-0 h-20 pointer-events-none" style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.32) 100%)' }} />
+
+                  {/* floating date badge */}
+                  <div className="absolute left-4 top-4 bg-white/90 text-xs text-foreground px-2 py-1 rounded-full shadow-sm">{format(new Date(m.date), 'dd MMM yyyy')}</div>
+
+                  {/* subtle layered shadow via pseudo element simulated with an overlay */}
+                  <div className="absolute inset-0 pointer-events-none" style={{ boxShadow: isHighlight ? 'inset 0 -30px 60px rgba(0,0,0,0.12)' : 'inset 0 -10px 30px rgba(0,0,0,0.06)' }} />
+
+                  {/* favorite indicator */}
+                  {favorites[m.id] && (
+                    <div className="absolute right-4 top-4 bg-white/80 rounded-full p-1 shadow-md">
+                      <span className="text-pink-500">💖</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className={`w-full ${isHighlight ? 'h-72' : 'h-36'} bg-gradient-to-br from-primary/10 to-accent/10 flex items-center justify-center`}>
+                  <ImageIcon size={28} className="text-muted-foreground/50" />
+                </div>
+              )}
+              <div className="p-3">
+                {m.description && <p className="text-sm text-foreground line-clamp-2 font-medium mb-1">{m.description}</p>}
+                <p className="text-[10px] text-muted-foreground font-medium opacity-70">{format(new Date(m.date), 'dd MMM yyyy', { locale: localeId })}</p>
               </div>
-            ) : (
-              <div className="w-full h-36 bg-gradient-to-br from-primary/10 to-accent/10 flex items-center justify-center">
-                <ImageIcon size={28} className="text-muted-foreground/50" />
-              </div>
-            )}
-            <div className="p-3">
-              {m.description && <p className="text-xs text-foreground line-clamp-2 font-medium mb-1">{m.description}</p>}
-              <p className="text-[10px] text-muted-foreground font-medium">{format(new Date(m.date), 'dd MMM yyyy', { locale: localeId })}</p>
-            </div>
-          </motion.div>
-        ))}
+            </motion.div>
+          );
+        })}
       </div>
 
       {memories.length === 0 && (

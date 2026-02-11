@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import { Plus, Music } from 'lucide-react';
+import { Plus, Music, Trash } from 'lucide-react';
 
 interface Playlist {
   id: string;
   title: string;
   spotify_url: string;
   category: string;
+  image_url?: string | null;
 }
 
 const CATS = [
@@ -31,12 +32,83 @@ const PlaylistPage = () => {
       .then(({ data }) => { if (data) setItems(data); });
   }, [profile?.couple_id]);
 
+  // Realtime: listen for playlist INSERT/UPDATE so UI updates automatically
+  useEffect(() => {
+    if (!profile?.couple_id) return;
+    const channel = supabase
+      .channel('playlists-realtime')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'playlists', filter: `couple_id=eq.${profile.couple_id}` }, (payload) => {
+        setItems(prev => {
+          const exists = prev.find(p => p.id === (payload.new as any).id);
+          if (exists) return prev;
+          return [(payload.new as Playlist), ...prev];
+        });
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'playlists', filter: `couple_id=eq.${profile.couple_id}` }, (payload) => {
+        const updated = payload.new as Playlist;
+        setItems(prev => prev.map(p => p.id === updated.id ? { ...p, ...updated } : p));
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [profile?.couple_id]);
+
   const add = async () => {
     if (!title.trim() || !url.trim() || !profile?.couple_id || !user) return;
-    await supabase.from('playlists').insert({ couple_id: profile.couple_id, created_by: user.id, title: title.trim(), spotify_url: url.trim(), category: cat });
+    // We'll call the edge function after inserting the playlist so the server
+    // can run with the service-role key and update the row; this keeps the
+    // client free of service keys and allows fire-and-forget behaviour.
+    let imageUrl: string | null = null;
+
+    // optimistic UI: show temporary item immediately
+    const tempId = `temp-${Date.now()}`;
+    const tempItem = { id: tempId, title: title.trim(), spotify_url: url.trim(), category: cat, image_url: imageUrl } as Playlist;
+    setItems(prev => [tempItem, ...prev]);
+
+    try {
+      const { data: inserted, error: insertErr } = await supabase.from('playlists').insert({ couple_id: profile.couple_id, created_by: user.id, title: title.trim(), spotify_url: url.trim(), category: cat, image_url: imageUrl }).select('id').maybeSingle();
+      if (insertErr) throw insertErr;
+
+      // Fire-and-forget: trigger server-side cover generation
+      (async () => {
+        try {
+          const fnUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fetch-playlist-cover`;
+          const { data: { session } } = await supabase.auth.getSession();
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            'apikey': String(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY),
+          };
+          if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
+          await fetch(fnUrl, { method: 'POST', headers, body: JSON.stringify({ url: url.trim(), couple_id: profile.couple_id, playlist_id: inserted?.id }) });
+        } catch (e) {
+          console.debug('fetch-playlist-cover (post-insert) error', e);
+        }
+      })();
+
+    } catch (e) {
+      console.error('insert playlist failed', e);
+    }
+
     setTitle(''); setUrl(''); setShowAdd(false);
     const { data } = await supabase.from('playlists').select('*').eq('couple_id', profile.couple_id).order('created_at', { ascending: false });
     if (data) setItems(data);
+
+    // Start polling the inserted row for image_url so the UI updates automatically
+    (async () => {
+      try {
+        const pid = inserted?.id;
+        if (!pid) return;
+        const maxAttempts = 12; // ~12 seconds
+        for (let i = 0; i < maxAttempts; i++) {
+          const { data: row } = await supabase.from('playlists').select('id,image_url').eq('id', pid).maybeSingle();
+          const image = (row as any)?.image_url;
+          if (image) {
+            setItems(prev => prev.map(p => p.id === pid ? { ...p, image_url: image } : p));
+            break;
+          }
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      } catch (e) { console.debug('poll image_url error', e); }
+    })();
   };
 
   return (
@@ -69,12 +141,43 @@ const PlaylistPage = () => {
             <p className="text-sm font-semibold text-foreground mb-2">{c.label}</p>
             <div className="space-y-2">
               {filtered.map((item) => (
-                <a key={item.id} href={item.spotify_url} target="_blank" rel="noopener noreferrer" className="glass-card p-3 flex items-center gap-3 block">
-                  <div className="p-2 rounded-lg bg-primary/10">
-                    <Music size={16} className="text-primary" />
+                <div key={item.id} className="relative">
+                <a href={item.spotify_url} target="_blank" rel="noopener noreferrer" className="glass-card p-3 flex items-center gap-3 block">
+                  <div className="w-12 h-12 rounded-lg overflow-hidden bg-primary/10 flex-shrink-0">
+                    {item.image_url ? (
+                      <img src={item.image_url} alt={item.title} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="p-2 rounded-lg bg-primary/10 flex items-center justify-center h-full">
+                        <Music size={16} className="text-primary" />
+                      </div>
+                    )}
                   </div>
                   <span className="text-sm font-medium text-foreground">{item.title}</span>
                 </a>
+                <button onClick={async () => {
+                  if (!confirm('Hapus lagu ini?')) return;
+                  try {
+                    // fetch row to get image_url
+                    const { data: row } = await supabase.from('playlists').select('image_url').eq('id', item.id).maybeSingle();
+                    const { error: delErr } = await supabase.from('playlists').delete().eq('id', item.id).eq('couple_id', profile.couple_id);
+                    if (delErr) { alert('Gagal menghapus lagu: ' + delErr.message); return; }
+                    // remove storage object if owned by bucket path
+                    try {
+                      const imageUrl = (row as any)?.image_url;
+                      if (imageUrl && imageUrl.includes('/couple-uploads/')) {
+                        const idx = imageUrl.indexOf('/couple-uploads/');
+                        const path = imageUrl.substring(idx + '/couple-uploads/'.length).split('?')[0];
+                        if (path) await supabase.storage.from('couple-uploads').remove([path]);
+                      }
+                    } catch (e) { console.debug('failed to remove playlist image', e); }
+                    // refresh list
+                    const { data } = await supabase.from('playlists').select('*').eq('couple_id', profile.couple_id).order('created_at', { ascending: false });
+                    if (data) setItems(data);
+                  } catch (e) { console.error('delete playlist error', e); alert('Terjadi kesalahan saat menghapus'); }
+                }} className="absolute right-3 top-3 text-destructive p-1 rounded hover:bg-destructive/10" aria-label="Hapus lagu">
+                  <Trash size={16} />
+                </button>
+                </div>
               ))}
             </div>
           </div>

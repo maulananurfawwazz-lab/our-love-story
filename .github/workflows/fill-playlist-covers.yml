@@ -1,0 +1,28 @@
+name: Fill playlist covers (scheduled)
+
+on:
+  schedule:
+    - cron: '*/15 * * * *' # every 15 minutes — adjust as needed
+  workflow_dispatch: {}
+
+jobs:
+  fill-covers:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: fill-playlist-covers
+      cancel-in-progress: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+
+      - name: Run fill-playlist-covers script
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BATCH_SIZE: '50'
+        run: deno run --allow-net --allow-env supabase/scripts/fill-playlist-covers.ts
