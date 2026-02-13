@@ -3,6 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { motion } from "framer-motion";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import AppLayout from "@/components/AppLayout";
 import LoginPage from "@/pages/LoginPage";
@@ -28,8 +29,15 @@ const ProtectedRoutes = () => {
     return (
       <div className="min-h-screen romantic-gradient flex items-center justify-center">
         <div className="text-center">
-          <div className="text-4xl animate-heartbeat mb-3">💕</div>
-          <p className="text-muted-foreground font-medium">Loading...</p>
+          <motion.div
+            animate={{ scale: [0.9, 1.1, 0.9], rotate: [0, 5, -5, 0] }}
+            transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+            className="text-5xl mb-4"
+          >
+            💕
+          </motion.div>
+          <p className="font-script text-2xl text-gradient-love mb-1">Our Journey</p>
+          <p className="text-muted-foreground text-xs font-medium tracking-wider">memuat cerita kita...</p>
         </div>
       </div>
     );

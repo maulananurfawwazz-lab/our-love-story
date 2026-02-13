@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Plus, Music, Trash } from 'lucide-react';
+import { notifyPartner, NotificationTemplates } from '@/lib/notifications';
 
 interface Playlist {
   id: string;
@@ -87,6 +88,9 @@ const PlaylistPage = () => {
     } catch (e) {
       console.error('insert playlist failed', e);
     }
+
+    // Fire-and-forget push notification to partner
+    notifyPartner(NotificationTemplates.playlist(profile?.name || 'Pasanganmu', title.trim()));
 
     setTitle(''); setUrl(''); setShowAdd(false);
     const { data } = await supabase.from('playlists').select('*').eq('couple_id', profile.couple_id).order('created_at', { ascending: false });

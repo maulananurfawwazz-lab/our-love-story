@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Plus, Mail, Lock, Unlock } from 'lucide-react';
 import { format, isBefore } from 'date-fns';
+import { notifyPartner, NotificationTemplates } from '@/lib/notifications';
 
 interface Surprise {
   id: string;
@@ -53,6 +54,9 @@ const SurprisesPage = () => {
     setMessage('');
     setShowAdd(false);
     setOpenDate('');
+
+    // Fire-and-forget push notification to partner
+    notifyPartner(NotificationTemplates.surprise(profile?.name || 'Pasanganmu'));
     
     const { data } = await supabase
       .from('surprises')

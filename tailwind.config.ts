@@ -16,6 +16,7 @@ export default {
       fontFamily: {
         script: ['"Dancing Script"', 'cursive'],
         body: ['"Quicksand"', 'sans-serif'],
+        handwritten: ['"Caveat"', 'cursive'],
       },
       colors: {
         border: "hsl(var(--border))",

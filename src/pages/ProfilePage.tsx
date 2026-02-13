@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import { Edit2, Save } from 'lucide-react';
+import { Edit2, Save, Bell, BellOff, Smartphone } from 'lucide-react';
+import { usePushNotifications } from '@/hooks/usePushNotifications';
 
 const ProfilePage = () => {
   const { user, profile, signOut, refreshProfile, updateLocalProfile } = useAuth();
+  const push = usePushNotifications();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(profile?.name ?? '');
   const [bio, setBio] = useState(profile?.bio ?? '');
@@ -150,6 +152,78 @@ const ProfilePage = () => {
               Edit Profil
             </motion.button>
           </>
+        )}
+      </motion.div>
+
+      {/* ─── Push Notifications Section ──────────────── */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="glass-card p-5 space-y-4"
+      >
+        <div className="flex items-center gap-2.5">
+          <Bell size={18} className="text-primary" />
+          <h3 className="text-sm font-semibold text-foreground">Notifikasi Push</h3>
+        </div>
+
+        {push.permission === 'unsupported' ? (
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+            <Smartphone size={16} className="text-amber-500 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-xs font-medium text-foreground">Browser tidak mendukung</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                {push.isIOS && !push.isPWA
+                  ? 'Tambahkan ke Home Screen terlebih dahulu, lalu buka dari sana untuk mengaktifkan notifikasi (iOS 16.4+)'
+                  : 'Push notifications tidak tersedia di browser ini. Coba gunakan Chrome atau Safari terbaru.'}
+              </p>
+            </div>
+          </div>
+        ) : push.permission === 'denied' ? (
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20">
+            <BellOff size={16} className="text-rose-500 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-xs font-medium text-foreground">Notifikasi diblokir</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                Kamu perlu mengizinkan notifikasi dari pengaturan browser untuk bisa menerima pesan dari pasangan.
+              </p>
+            </div>
+          </div>
+        ) : push.isSubscribed ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-green-500/10 border border-green-500/20">
+              <Bell size={16} className="text-green-500 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs font-medium text-foreground">Notifikasi aktif ✨</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  Kamu akan menerima notifikasi saat pasangan mengirim pesan, kenangan, atau kejutan.
+                </p>
+              </div>
+            </div>
+            <motion.button
+              whileTap={{ scale: 0.98 }}
+              onClick={() => push.unsubscribe()}
+              disabled={push.isLoading}
+              className="w-full py-2 rounded-xl border border-border text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {push.isLoading ? 'Memproses...' : 'Matikan Notifikasi'}
+            </motion.button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Aktifkan notifikasi agar kamu tidak ketinggalan pesan dan kejutan dari pasangan 💕
+            </p>
+            <motion.button
+              whileTap={{ scale: 0.98 }}
+              onClick={() => push.subscribe()}
+              disabled={push.isLoading}
+              className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold flex items-center justify-center gap-2"
+            >
+              <Bell size={14} />
+              {push.isLoading ? 'Memproses...' : 'Aktifkan Notifikasi 🔔'}
+            </motion.button>
+          </div>
         )}
       </motion.div>
 

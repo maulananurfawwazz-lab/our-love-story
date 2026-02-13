@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { TrendingUp, User } from 'lucide-react';
+import { notifyPartner, NotificationTemplates } from '@/lib/notifications';
 
 const EMOTIONS = [
   { type: 'Bahagia', emoji: '😊', color: 'from-yellow-400 to-amber-500' },
@@ -56,6 +57,9 @@ const EmotionsPage = () => {
     if (!profile?.couple_id || !user || todayMood) return;
     await supabase.from('emotions').insert({ couple_id: profile.couple_id, user_id: user.id, emotion_type: type, date: today });
     setTodayMood(type);
+
+    // Fire-and-forget push notification to partner
+    notifyPartner(NotificationTemplates.emotion(profile?.name || 'Pasanganmu', type));
   };
 
   const getName = (userId: string) => {

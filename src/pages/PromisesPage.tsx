@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Plus, Lock, Heart } from 'lucide-react';
+import { notifyPartner, NotificationTemplates } from '@/lib/notifications';
 
 interface Promise {
   id: string;
@@ -38,6 +39,11 @@ const PromisesPage = () => {
     });
     setContent('');
     setShowAdd(false);
+
+    // Fire-and-forget push notification to partner
+    if (!isPrivate) {
+      notifyPartner(NotificationTemplates.promise(profile?.name || 'Pasanganmu'));
+    }
     
     const { data } = await supabase
       .from('promises')

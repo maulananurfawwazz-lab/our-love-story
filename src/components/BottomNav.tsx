@@ -3,11 +3,11 @@ import { Home, Camera, MessageCircle, Heart, User } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 const tabs = [
-  { to: '/', icon: Home, label: 'Home' },
-  { to: '/gallery', icon: Camera, label: 'Galeri' },
-  { to: '/chat', icon: MessageCircle, label: 'Chat' },
-  { to: '/emotions', icon: Heart, label: 'Mood' },
-  { to: '/profile', icon: User, label: 'Profil' },
+  { to: '/', icon: Home, label: 'Beranda', emoji: '🏠' },
+  { to: '/gallery', icon: Camera, label: 'Galeri', emoji: '📸' },
+  { to: '/chat', icon: MessageCircle, label: 'Chat', emoji: '💌' },
+  { to: '/emotions', icon: Heart, label: 'Mood', emoji: '💕' },
+  { to: '/profile', icon: User, label: 'Profil', emoji: '👤' },
 ];
 
 const BottomNav = () => {
@@ -15,29 +15,45 @@ const BottomNav = () => {
 
   return (
     <nav className="ios-bottom-nav">
-      <div className="flex items-center justify-around py-2 px-4 max-w-lg mx-auto">
+      <div className="flex items-center justify-around py-1.5 px-2 max-w-lg mx-auto">
         {tabs.map(({ to, icon: Icon, label }) => {
           const active = location.pathname === to;
           return (
             <NavLink
               key={to}
               to={to}
-              className="flex flex-col items-center gap-0.5 relative px-3 py-1"
+              className="flex flex-col items-center gap-0.5 relative px-3 py-1.5"
             >
               <div className="relative">
                 {active && (
                   <motion.div
-                    layoutId="nav-indicator"
-                    className="absolute -inset-2 rounded-xl bg-primary/10"
-                    transition={{ type: 'spring', bounce: 0.25, duration: 0.4 }}
+                    layoutId="nav-glow"
+                    className="absolute -inset-2.5 rounded-2xl"
+                    style={{
+                      background: 'radial-gradient(circle, hsl(340 70% 65% / 0.12) 0%, transparent 70%)',
+                    }}
+                    transition={{ type: 'spring', bounce: 0.2, duration: 0.5 }}
                   />
                 )}
-                <Icon
-                  size={22}
-                  className={active ? 'text-primary relative z-10' : 'text-muted-foreground relative z-10'}
-                />
+                <motion.div
+                  animate={active ? { scale: [1, 1.15, 1] } : {}}
+                  transition={{ duration: 0.3 }}
+                >
+                  <Icon
+                    size={21}
+                    className={`relative z-10 transition-colors duration-200 ${
+                      active 
+                        ? 'text-rose-500' 
+                        : 'text-muted-foreground/60'
+                    }`}
+                    fill={active ? 'currentColor' : 'none'}
+                    strokeWidth={active ? 1.5 : 1.8}
+                  />
+                </motion.div>
               </div>
-              <span className={`text-[10px] font-medium ${active ? 'text-primary' : 'text-muted-foreground'}`}>
+              <span className={`text-[9px] font-semibold transition-colors duration-200 ${
+                active ? 'text-rose-500' : 'text-muted-foreground/50'
+              }`}>
                 {label}
               </span>
             </NavLink>

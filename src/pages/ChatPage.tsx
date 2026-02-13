@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Send } from 'lucide-react';
 import { format } from 'date-fns';
+import { notifyPartner, NotificationTemplates } from '@/lib/notifications';
 
 interface ChatMsg {
   id: string;
@@ -72,6 +73,10 @@ const ChatPage = () => {
       sender_id: user.id,
       message: msg,
     });
+
+    // Fire-and-forget push notification to partner
+    notifyPartner(NotificationTemplates.chat(profile?.name || 'Pasanganmu', msg));
+
     setSending(false);
   };
 
