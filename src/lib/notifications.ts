@@ -84,8 +84,8 @@ export const NotificationTemplates = {
 
   chat: (senderName: string, messagePreview: string) => ({
     type: 'chat',
-    title: `Pesan dari ${senderName} 💌`,
-    body: `${senderName}: ${messagePreview.slice(0, 80)}${messagePreview.length > 80 ? '...' : ''}`,
+    title: `${senderName} 💌`,
+    body: `${senderName}: ${messagePreview.slice(0, 100)}${messagePreview.length > 100 ? '...' : ''}`,
     url: '/chat',
     tag: 'chat',
   }),
