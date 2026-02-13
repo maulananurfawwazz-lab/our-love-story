@@ -138,6 +138,22 @@ export const NotificationTemplates = {
     tag: 'surprise',
   }),
 
+  surpriseOpened: (senderName: string) => ({
+    type: 'surprise-opened',
+    title: 'Kejutan Dibuka! 💌',
+    body: `${senderName} membuka kejutanmu`,
+    url: '/surprises',
+    tag: 'surprise-opened',
+  }),
+
+  surpriseReaction: (senderName: string, reaction: string) => ({
+    type: 'surprise-reaction',
+    title: `Reaksi: ${reaction}`,
+    body: `${senderName} bereaksi ${reaction} terhadap kejutanmu`,
+    url: '/surprises',
+    tag: 'surprise-reaction',
+  }),
+
   goal: (senderName: string) => ({
     type: 'goal',
     title: 'Impian Baru ✨',
