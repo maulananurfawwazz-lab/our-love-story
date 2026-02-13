@@ -106,6 +106,30 @@ export const NotificationTemplates = {
     tag: 'promise',
   }),
 
+  promiseRequest: (senderName: string) => ({
+    type: 'promise-request',
+    title: 'Permintaan Janji 💌',
+    body: `${senderName} mengirim janji baru untukmu. Setujui?`,
+    url: '/promises',
+    tag: 'promise-request',
+  }),
+
+  promiseApproved: (senderName: string) => ({
+    type: 'promise-approved',
+    title: 'Janji Disetujui! 💕',
+    body: `${senderName} menyetujui janjimu. Sekarang resmi!`,
+    url: '/promises',
+    tag: 'promise-approved',
+  }),
+
+  promiseRejected: (senderName: string) => ({
+    type: 'promise-rejected',
+    title: 'Janji Ditolak 😢',
+    body: `${senderName} menolak janjimu`,
+    url: '/promises',
+    tag: 'promise-rejected',
+  }),
+
   surprise: (senderName: string) => ({
     type: 'surprise',
     title: 'Kejutan Baru 🎁',
