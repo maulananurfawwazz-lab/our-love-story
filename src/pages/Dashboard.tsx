@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -9,6 +9,7 @@ import { id as localeId } from 'date-fns/locale';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
+import { useRealtimeTable } from '@/hooks/useRealtimeTable';
 
 const EMOTION_MAP: Record<string, string> = {
   Bahagia: '😊', Sayang: '🥰', Cemburu: '😤', Ngambek: '😠', Marah: '😡',
@@ -22,15 +23,41 @@ const loveQuotes = [
   "Together is my favorite place to be.",
 ];
 
+interface EmotionRow { id: string; emotion_type: string; user_id: string; date: string; }
+interface MemoryRow { id: string; description: string; image_url: string | null; created_at: string; date: string; }
+
 const Dashboard = () => {
   const { user, profile, partner, coupleInfo, signOut, refreshCoupleInfo } = useAuth();
   const navigate = useNavigate();
   const [daysTogether, setDaysTogether] = useState(0);
-  const [todayEmotions, setTodayEmotions] = useState<{ emotion_type: string; user_id: string }[]>([]);
-  const [latestMemory, setLatestMemory] = useState<{ description: string; image_url: string | null; created_at?: string } | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [startDate, setStartDate] = useState('');
   const [quote] = useState(() => loveQuotes[Math.floor(Math.random() * loveQuotes.length)]);
+
+  const today = new Date().toISOString().split('T')[0];
+
+  // Realtime emotions – get today's moods automatically
+  const { data: allEmotions } = useRealtimeTable<EmotionRow>({
+    table: 'emotions',
+    coupleId: profile?.couple_id,
+    orderBy: { column: 'created_at', ascending: false },
+    limit: 50,
+  });
+
+  const todayEmotions = useMemo(
+    () => allEmotions.filter(e => e.date === today),
+    [allEmotions, today]
+  );
+
+  // Realtime memories – latest memory updates automatically
+  const { data: allMemories } = useRealtimeTable<MemoryRow>({
+    table: 'memories',
+    coupleId: profile?.couple_id,
+    orderBy: { column: 'created_at', ascending: false },
+    limit: 1,
+  });
+
+  const latestMemory = allMemories[0] ?? null;
 
   useEffect(() => {
     if (coupleInfo?.start_date) {
@@ -38,18 +65,6 @@ const Dashboard = () => {
       setStartDate(coupleInfo.start_date);
     }
   }, [coupleInfo]);
-
-  useEffect(() => {
-    if (!profile?.couple_id) return;
-    const today = new Date().toISOString().split('T')[0];
-    Promise.all([
-      supabase.from('emotions').select('emotion_type, user_id').eq('couple_id', profile.couple_id).eq('date', today),
-      supabase.from('memories').select('description, image_url, created_at').eq('couple_id', profile.couple_id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
-    ]).then(([emotionsRes, memoryRes]) => {
-      if (emotionsRes.data) setTodayEmotions(emotionsRes.data);
-      if (memoryRes.data) setLatestMemory(memoryRes.data);
-    });
-  }, [profile?.couple_id]);
 
   const saveStartDate = async () => {
     if (!profile?.couple_id || !startDate) return;

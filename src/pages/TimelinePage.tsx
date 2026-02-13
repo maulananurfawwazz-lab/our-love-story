@@ -1,13 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import { Plus, Trash2, Calendar, MapPin } from 'lucide-react';
+import { Plus, Trash2, Calendar } from 'lucide-react';
 import { format } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
+import { useRealtimeTable } from '@/hooks/useRealtimeTable';
 
 interface TimelineEvent {
   id: string;
@@ -21,7 +22,6 @@ const ICONS = ['💑', '💕', '🥂', '✈️', '🎂', '💍', '🏠', '🎉',
 
 const TimelinePage = () => {
   const { profile } = useAuth();
-  const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
@@ -33,15 +33,11 @@ const TimelinePage = () => {
   const [favorites, setFavorites] = useState<Record<string, boolean>>({});
   const [zoomSrc, setZoomSrc] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!profile?.couple_id) return;
-    supabase
-      .from('timeline_events')
-      .select('*')
-      .eq('couple_id', profile.couple_id)
-      .order('date', { ascending: true })
-      .then(({ data }) => { if (data) setEvents(data); });
-  }, [profile?.couple_id]);
+  const { data: events, insert, remove, setData: setEvents } = useRealtimeTable<TimelineEvent>({
+    table: 'timeline_events',
+    coupleId: profile?.couple_id,
+    orderBy: { column: 'date', ascending: true },
+  });
 
   const addEvent = async () => {
     if (!profile?.couple_id || !title || !date) return;
@@ -64,8 +60,7 @@ const TimelinePage = () => {
       setUploading(false);
     }
 
-    await supabase.from('timeline_events').insert({
-      couple_id: profile.couple_id,
+    await insert({
       title,
       description: desc || null,
       date,
@@ -73,8 +68,6 @@ const TimelinePage = () => {
     });
     setTitle(''); setDesc(''); setDate(''); setShowAdd(false);
     setFile(null); setPreview(null);
-    const { data } = await supabase.from('timeline_events').select('*').eq('couple_id', profile.couple_id).order('date', { ascending: true });
-    if (data) setEvents(data);
     setSaving(false);
   };
 
@@ -91,52 +84,25 @@ const TimelinePage = () => {
 
   const deleteEvent = async (id: string) => {
     if (!profile?.couple_id) return;
-    // perform server delete first and only update UI on success
+    // Find image_url before deleting to clean up storage
+    const event = events.find(e => e.id === id);
+    const imageUrl = event?.image_url;
+
+    const success = await remove(id);
+    if (!success) {
+      alert('Gagal menghapus momen');
+      return;
+    }
+
+    // Best-effort storage cleanup
     try {
-      // fetch the row to see if it has an image to remove
-      const { data: rows } = await supabase.from('timeline_events').select('image_url').eq('id', id).maybeSingle();
-      console.debug('DeleteEvent: fetched row', { id, row: rows });
-      // log current authenticated user for RLS debugging
-      try {
-        const authUser = await supabase.auth.getUser();
-        console.debug('DeleteEvent: supabase.auth.getUser()', authUser);
-      } catch (auErr) {
-        console.debug('DeleteEvent: failed to get auth user', auErr);
+      if (imageUrl && imageUrl.includes('/couple-uploads/')) {
+        const idx = imageUrl.indexOf('/couple-uploads/');
+        const path = imageUrl.substring(idx + '/couple-uploads/'.length).split('?')[0];
+        if (path) await supabase.storage.from('couple-uploads').remove([path]);
       }
-      const { data: deletedRows, error: delErr } = await supabase
-        .from('timeline_events')
-        .delete()
-        .select('id')
-        .eq('id', id)
-        .eq('couple_id', profile.couple_id);
-      if (delErr) {
-        console.error('Failed to delete timeline event', delErr);
-        alert('Gagal menghapus momen: ' + delErr.message);
-        return;
-      }
-      // If no rows were deleted, warn and do not update UI (likely RLS or mismatch)
-      if (!deletedRows || (Array.isArray(deletedRows) && deletedRows.length === 0)) {
-        console.warn('Delete request succeeded but no rows were removed', { id, couple_id: profile.couple_id });
-        alert('Gagal menghapus momen: tidak ada baris yang dihapus. Periksa izin atau pasangan terkait.');
-        return;
-      }
-
-      // if there was an image, attempt to remove it from storage (best-effort)
-      try {
-        const imageUrl = (rows as any)?.image_url;
-        if (imageUrl && imageUrl.includes('/couple-uploads/')) {
-          const idx = imageUrl.indexOf('/couple-uploads/');
-          const path = imageUrl.substring(idx + '/couple-uploads/'.length).split('?')[0];
-          if (path) await supabase.storage.from('couple-uploads').remove([path]);
-        }
-      } catch (e) {
-        console.debug('Failed to remove timeline image from storage', e);
-      }
-
-      setEvents(prev => prev.filter(e => e.id !== id));
     } catch (e) {
-      console.error('Delete timeline event error', e);
-      alert('Terjadi kesalahan saat menghapus momen. Coba lagi.');
+      console.debug('Failed to remove timeline image from storage', e);
     }
   };
 

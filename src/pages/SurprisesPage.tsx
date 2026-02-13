@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
-import { Plus, Mail, Lock, Unlock } from 'lucide-react';
-import { format, isBefore } from 'date-fns';
+import { Plus, Lock, Unlock } from 'lucide-react';
+import { isBefore } from 'date-fns';
 import { notifyPartner, NotificationTemplates } from '@/lib/notifications';
+import { useRealtimeTable } from '@/hooks/useRealtimeTable';
 
 interface Surprise {
   id: string;
@@ -24,27 +24,21 @@ const CATEGORIES = [
 
 const SurprisesPage = () => {
   const { user, profile } = useAuth();
-  const [surprises, setSurprises] = useState<Surprise[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [message, setMessage] = useState('');
   const [category, setCategory] = useState('general');
   const [openDate, setOpenDate] = useState('');
   const [openedId, setOpenedId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!profile?.couple_id) return;
-    supabase
-      .from('surprises')
-      .select('*')
-      .eq('couple_id', profile.couple_id)
-      .order('created_at', { ascending: false })
-      .then(({ data }) => { if (data) setSurprises(data); });
-  }, [profile?.couple_id]);
+  const { data: surprises, insert } = useRealtimeTable<Surprise>({
+    table: 'surprises',
+    coupleId: profile?.couple_id,
+    orderBy: { column: 'created_at', ascending: false },
+  });
 
   const addSurprise = async () => {
     if (!message.trim() || !profile?.couple_id || !user) return;
-    await supabase.from('surprises').insert({
-      couple_id: profile.couple_id,
+    await insert({
       created_by: user.id,
       message: message.trim(),
       category,
@@ -57,13 +51,6 @@ const SurprisesPage = () => {
 
     // Fire-and-forget push notification to partner
     notifyPartner(NotificationTemplates.surprise(profile?.name || 'Pasanganmu'));
-    
-    const { data } = await supabase
-      .from('surprises')
-      .select('*')
-      .eq('couple_id', profile.couple_id)
-      .order('created_at', { ascending: false });
-    if (data) setSurprises(data);
   };
 
   const canOpen = (s: Surprise) => {

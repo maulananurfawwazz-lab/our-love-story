@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import { Plus } from 'lucide-react';
+import { useRealtimeTable } from '@/hooks/useRealtimeTable';
 
 interface Goal {
   id: string;
@@ -22,27 +22,21 @@ const TYPES = [
 
 const GoalsPage = () => {
   const { profile } = useAuth();
-  const [goals, setGoals] = useState<Goal[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [type, setType] = useState('honeymoon');
   const [targetDate, setTargetDate] = useState('');
 
-  useEffect(() => {
-    if (!profile?.couple_id) return;
-    supabase
-      .from('future_goals')
-      .select('*')
-      .eq('couple_id', profile.couple_id)
-      .order('created_at', { ascending: false })
-      .then(({ data }) => { if (data) setGoals(data); });
-  }, [profile?.couple_id]);
+  const { data: goals, insert } = useRealtimeTable<Goal>({
+    table: 'future_goals',
+    coupleId: profile?.couple_id,
+    orderBy: { column: 'created_at', ascending: false },
+  });
 
   const addGoal = async () => {
     if (!title.trim() || !profile?.couple_id) return;
-    await supabase.from('future_goals').insert({
-      couple_id: profile.couple_id,
+    await insert({
       type,
       title: title.trim(),
       description: desc || null,
@@ -51,8 +45,6 @@ const GoalsPage = () => {
     setTitle('');
     setDesc('');
     setShowAdd(false);
-    const { data } = await supabase.from('future_goals').select('*').eq('couple_id', profile.couple_id).order('created_at', { ascending: false });
-    if (data) setGoals(data);
   };
 
   return (

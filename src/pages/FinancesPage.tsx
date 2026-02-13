@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import { Plus } from 'lucide-react';
+import { useRealtimeTable } from '@/hooks/useRealtimeTable';
 
 interface Finance {
   id: string;
@@ -17,28 +17,22 @@ const CATEGORIES = ['Makanan', 'Transportasi', 'Belanja', 'Hiburan', 'Tabungan',
 
 const FinancesPage = () => {
   const { user, profile } = useAuth();
-  const [records, setRecords] = useState<Finance[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [type, setType] = useState<'income' | 'expense'>('expense');
   const [category, setCategory] = useState('Makanan');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
 
-  useEffect(() => {
-    if (!profile?.couple_id) return;
-    supabase
-      .from('finances')
-      .select('*')
-      .eq('couple_id', profile.couple_id)
-      .order('date', { ascending: false })
-      .limit(50)
-      .then(({ data }) => { if (data) setRecords(data); });
-  }, [profile?.couple_id]);
+  const { data: records, insert } = useRealtimeTable<Finance>({
+    table: 'finances',
+    coupleId: profile?.couple_id,
+    orderBy: { column: 'date', ascending: false },
+    limit: 50,
+  });
 
   const addRecord = async () => {
     if (!amount || !profile?.couple_id || !user) return;
-    await supabase.from('finances').insert({
-      couple_id: profile.couple_id,
+    await insert({
       user_id: user.id,
       type,
       category,
@@ -47,14 +41,6 @@ const FinancesPage = () => {
     });
     setAmount('');
     setShowAdd(false);
-    
-    const { data } = await supabase
-      .from('finances')
-      .select('*')
-      .eq('couple_id', profile.couple_id)
-      .order('date', { ascending: false })
-      .limit(50);
-    if (data) setRecords(data);
   };
 
   const totalIncome = records.filter(r => r.type === 'income').reduce((s, r) => s + Number(r.amount), 0);

@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import { Plus, Lock, Heart } from 'lucide-react';
 import { notifyPartner, NotificationTemplates } from '@/lib/notifications';
+import { useRealtimeTable } from '@/hooks/useRealtimeTable';
 
 interface Promise {
   id: string;
@@ -14,25 +14,19 @@ interface Promise {
 
 const PromisesPage = () => {
   const { user, profile } = useAuth();
-  const [promises, setPromises] = useState<Promise[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [content, setContent] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
 
-  useEffect(() => {
-    if (!profile?.couple_id) return;
-    supabase
-      .from('promises')
-      .select('*')
-      .eq('couple_id', profile.couple_id)
-      .order('created_at', { ascending: false })
-      .then(({ data }) => { if (data) setPromises(data); });
-  }, [profile?.couple_id]);
+  const { data: promises, insert } = useRealtimeTable<Promise>({
+    table: 'promises',
+    coupleId: profile?.couple_id,
+    orderBy: { column: 'created_at', ascending: false },
+  });
 
   const addPromise = async () => {
     if (!content.trim() || !profile?.couple_id || !user) return;
-    await supabase.from('promises').insert({
-      couple_id: profile.couple_id,
+    await insert({
       created_by: user.id,
       content: content.trim(),
       is_private: isPrivate,
@@ -44,13 +38,6 @@ const PromisesPage = () => {
     if (!isPrivate) {
       notifyPartner(NotificationTemplates.promise(profile?.name || 'Pasanganmu'));
     }
-    
-    const { data } = await supabase
-      .from('promises')
-      .select('*')
-      .eq('couple_id', profile.couple_id)
-      .order('created_at', { ascending: false });
-    if (data) setPromises(data);
   };
 
   return (

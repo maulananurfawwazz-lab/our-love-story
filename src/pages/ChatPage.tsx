@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import { Send } from 'lucide-react';
 import { format } from 'date-fns';
 import { notifyPartner, NotificationTemplates } from '@/lib/notifications';
+import { useRealtimeTable } from '@/hooks/useRealtimeTable';
 
 interface ChatMsg {
   id: string;
@@ -15,48 +15,16 @@ interface ChatMsg {
 
 const ChatPage = () => {
   const { user, profile } = useAuth();
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const processedIds = useRef(new Set<string>());
 
-  useEffect(() => {
-    if (!profile?.couple_id) return;
-
-    const fetchMessages = async () => {
-      const { data } = await supabase
-        .from('chat_messages')
-        .select('*')
-        .eq('couple_id', profile.couple_id)
-        .order('created_at', { ascending: true })
-        .limit(200);
-      if (data) {
-        setMessages(data);
-        data.forEach(m => processedIds.current.add(m.id));
-      }
-    };
-
-    fetchMessages();
-
-    const channel = supabase
-      .channel('chat-realtime')
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'chat_messages',
-        filter: `couple_id=eq.${profile.couple_id}`,
-      }, (payload) => {
-        const newMsg = payload.new as ChatMsg;
-        if (!processedIds.current.has(newMsg.id)) {
-          processedIds.current.add(newMsg.id);
-          setMessages(prev => [...prev, newMsg]);
-        }
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, [profile?.couple_id]);
+  const { data: messages, insert } = useRealtimeTable<ChatMsg>({
+    table: 'chat_messages',
+    coupleId: profile?.couple_id,
+    orderBy: { column: 'created_at', ascending: true },
+    limit: 200,
+  });
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -67,12 +35,8 @@ const ChatPage = () => {
     setSending(true);
     const msg = text.trim();
     setText('');
-    
-    await supabase.from('chat_messages').insert({
-      couple_id: profile.couple_id,
-      sender_id: user.id,
-      message: msg,
-    });
+
+    await insert({ sender_id: user.id, message: msg });
 
     // Fire-and-forget push notification to partner
     notifyPartner(NotificationTemplates.chat(profile?.name || 'Pasanganmu', msg));

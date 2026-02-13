@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -9,6 +9,7 @@ import { id as localeId } from 'date-fns/locale';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
+import { useRealtimeTable } from '@/hooks/useRealtimeTable';
 
 interface Memory {
   id: string;
@@ -30,7 +31,6 @@ const whispers = [
 
 const GalleryPage = () => {
   const { user, profile } = useAuth();
-  const [memories, setMemories] = useState<Memory[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [desc, setDesc] = useState('');
@@ -43,15 +43,11 @@ const GalleryPage = () => {
   const longPressTimer = useRef<number | null>(null);
   const [longPressTarget, setLongPressTarget] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!profile?.couple_id) return;
-    supabase
-      .from('memories')
-      .select('*')
-      .eq('couple_id', profile.couple_id)
-      .order('date', { ascending: false })
-      .then(({ data }) => { if (data) setMemories(data); });
-  }, [profile?.couple_id]);
+  const { data: memories, insert, remove, setData: setMemories } = useRealtimeTable<Memory>({
+    table: 'memories',
+    coupleId: profile?.couple_id,
+    orderBy: { column: 'date', ascending: false },
+  });
 
   const handleFileChange = (f: File | null) => {
     setFile(f);
@@ -68,16 +64,6 @@ const GalleryPage = () => {
     if (!profile?.couple_id || !user) return;
     setUploading(true);
     let imageUrl: string | null = null;
-    const tempId = `temp-${Date.now()}`;
-    const tempMemory: Memory = {
-      id: tempId,
-      image_url: preview,
-      description: desc || null,
-      date,
-      created_at: new Date().toISOString(),
-      created_by: user.id,
-    };
-    setMemories(prev => [tempMemory, ...prev]);
 
     try {
       if (file) {
@@ -90,9 +76,12 @@ const GalleryPage = () => {
         }
       }
 
-      await supabase.from('memories').insert({ couple_id: profile.couple_id, created_by: user.id, image_url: imageUrl, description: desc || null, date }).select('*').maybeSingle();
-      const { data } = await supabase.from('memories').select('*').eq('couple_id', profile.couple_id).order('date', { ascending: false });
-      if (data) setMemories(data);
+      await insert({
+        created_by: user.id,
+        image_url: imageUrl,
+        description: desc || null,
+        date,
+      });
 
       // Fire-and-forget push notification to partner
       notifyPartner(NotificationTemplates.memory(profile?.name || 'Pasanganmu'));
@@ -102,7 +91,6 @@ const GalleryPage = () => {
       setFile(null);
       setPreview(null);
     } catch (err) {
-      setMemories(prev => prev.filter(m => m.id !== tempId));
       console.error('Upload memory failed', err);
     } finally {
       setUploading(false);
@@ -110,10 +98,22 @@ const GalleryPage = () => {
   };
 
   const handleDelete = async (id: string) => {
-    await supabase.from('memories').delete().eq('id', id);
-    setMemories(prev => prev.filter(m => m.id !== id));
+    // Find image to clean up storage
+    const mem = memories.find(m => m.id === id);
+    await remove(id);
     setConfirmDelete(null);
     setSelectedMemory(null);
+
+    // Best-effort storage cleanup
+    try {
+      if (mem?.image_url && mem.image_url.includes('/couple-uploads/')) {
+        const idx = mem.image_url.indexOf('/couple-uploads/');
+        const path = mem.image_url.substring(idx + '/couple-uploads/'.length).split('?')[0];
+        if (path) await supabase.storage.from('couple-uploads').remove([path]);
+      }
+    } catch (e) {
+      console.debug('Failed to remove memory image from storage', e);
+    }
   };
 
   const toggleFavorite = useCallback((id: string) => {

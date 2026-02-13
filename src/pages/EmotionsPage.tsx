@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
-import { TrendingUp, User } from 'lucide-react';
+import { TrendingUp } from 'lucide-react';
 import { notifyPartner, NotificationTemplates } from '@/lib/notifications';
+import { useRealtimeTable } from '@/hooks/useRealtimeTable';
 
 const EMOTIONS = [
   { type: 'Bahagia', emoji: '😊', color: 'from-yellow-400 to-amber-500' },
@@ -22,41 +22,24 @@ interface EmotionLog {
 
 const EmotionsPage = () => {
   const { user, profile, partner } = useAuth();
-  const [logs, setLogs] = useState<EmotionLog[]>([]);
-  const [todayMood, setTodayMood] = useState<string | null>(null);
-
   const today = new Date().toISOString().split('T')[0];
 
-  useEffect(() => {
-    if (!profile?.couple_id) return;
-    const fetch = async () => {
-      const { data } = await supabase
-        .from('emotions')
-        .select('*')
-        .eq('couple_id', profile.couple_id)
-        .order('created_at', { ascending: false })
-        .limit(50);
-      if (data) {
-        setLogs(data);
-        const myToday = data.find(e => e.user_id === user?.id && e.date === today);
-        if (myToday) setTodayMood(myToday.emotion_type);
-      }
-    };
-    fetch();
+  const { data: logs, insert } = useRealtimeTable<EmotionLog>({
+    table: 'emotions',
+    coupleId: profile?.couple_id,
+    orderBy: { column: 'created_at', ascending: false },
+    limit: 50,
+  });
 
-    const channel = supabase
-      .channel('emotions-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'emotions', filter: `couple_id=eq.${profile.couple_id}` }, (payload) => {
-        setLogs(prev => [payload.new as EmotionLog, ...prev]);
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [profile?.couple_id, user?.id]);
+  // Derive todayMood from realtime data
+  const todayMood = useMemo(() => {
+    const myToday = logs.find(e => e.user_id === user?.id && e.date === today);
+    return myToday?.emotion_type ?? null;
+  }, [logs, user?.id, today]);
 
   const logEmotion = async (type: string) => {
     if (!profile?.couple_id || !user || todayMood) return;
-    await supabase.from('emotions').insert({ couple_id: profile.couple_id, user_id: user.id, emotion_type: type, date: today });
-    setTodayMood(type);
+    await insert({ user_id: user.id, emotion_type: type, date: today });
 
     // Fire-and-forget push notification to partner
     notifyPartner(NotificationTemplates.emotion(profile?.name || 'Pasanganmu', type));
